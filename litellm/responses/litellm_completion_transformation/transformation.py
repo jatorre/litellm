@@ -160,9 +160,10 @@ class LiteLLMCompletionResponsesConfig:
             if litellm_logging_obj:
                 litellm_logging_obj.stream_options = stream_options
 
-        # only pass non-None values
+        # only pass non-None values and non-empty tools
         litellm_completion_request = {
-            k: v for k, v in litellm_completion_request.items() if v is not None
+            k: v for k, v in litellm_completion_request.items() 
+            if v is not None and not (k == "tools" and isinstance(v, list) and len(v) == 0)
         }
 
         return litellm_completion_request
@@ -544,17 +545,36 @@ class LiteLLMCompletionResponsesConfig:
                 )
             else:
                 typed_tool = cast(FunctionToolParam, tool)
-                chat_completion_tools.append(
-                    ChatCompletionToolParam(
-                        type="function",
-                        function=ChatCompletionToolParamFunctionChunk(
-                            name=typed_tool.get("name") or "",
-                            description=typed_tool.get("description") or "",
-                            parameters=dict(typed_tool.get("parameters", {}) or {}),
-                            strict=typed_tool.get("strict", False) or False,
-                        ),
+                # Handle both formats:
+                # 1. Nested format: {"type": "function", "function": {...}}
+                # 2. Flat format: {"type": "function", "name": ..., "description": ..., "parameters": ...}
+                if "function" in typed_tool:
+                    # Nested format (correct Responses API format)
+                    function_def = typed_tool.get("function", {})
+                    chat_completion_tools.append(
+                        ChatCompletionToolParam(
+                            type="function",
+                            function=ChatCompletionToolParamFunctionChunk(
+                                name=function_def.get("name") or "",
+                                description=function_def.get("description") or "",
+                                parameters=dict(function_def.get("parameters", {}) or {}),
+                                strict=function_def.get("strict", False) or False,
+                            ),
+                        )
                     )
-                )
+                else:
+                    # Flat format (backwards compatibility)
+                    chat_completion_tools.append(
+                        ChatCompletionToolParam(
+                            type="function",
+                            function=ChatCompletionToolParamFunctionChunk(
+                                name=typed_tool.get("name") or "",
+                                description=typed_tool.get("description") or "",
+                                parameters=dict(typed_tool.get("parameters", {}) or {}),
+                                strict=typed_tool.get("strict", False) or False,
+                            ),
+                        )
+                    )
         return chat_completion_tools, web_search_options
 
     @staticmethod
